@@ -1,0 +1,102 @@
+#!/bin/sh
+
+
+function usage() { 
+  echo "pinfo - returns information for a given pid or pid string value"
+  echo "$0 -p pid"
+  echo "$0 -s string"
+}
+
+
+
+function lookup_pid() { 
+
+    MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $2"|"$3}'|grep  "|1$"|awk -F"|" '{print $1}')
+    if [ "$PID" ==  "$MASTERPID" ]; then
+      CHILD=$(pgrep -P $MASTERPID|wc -l)
+       echo "$PID is MASTER with $CHILD children processes" 
+       CHECK_PID=$PID
+       pid_running_time;
+    else	
+	MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $3}')
+    	CHILD=$(pgrep -P $MASTERPID|wc -l)
+        echo "$PID is  CHILD PID - MASTER is $MASTERPID  which has $CHILD children processes" 
+        CHECK_PID=$PID
+        pid_running_time;
+	CHECK_PID=$MASTERPID
+        pid_running_time;
+    fi
+
+   
+}
+      
+function lookup_string() { 
+  PID=$(pgrep -f "$SEARCH_STRING"|head -1)
+  if [ ! "$PID" == "" ]; then
+	lookup_pid;
+  else
+	echo "Could not find any proccess to match $SEARCH_STRING"
+  fi
+}
+
+function pid_running_time() { 
+      local processid=$CHECK_PID
+      USERNAME=$(ps -ef $processid|awk '{print $1"_"$2}'|grep $processid|awk -F"_" '{print $1}')
+      ctime=$((`date +%s`  - `stat -t /proc/$processid | awk '{print $14}'`))
+		
+		if [ $ctime -lt 86400 ]; then
+			if [ $ctime -le 60 ]; then	
+				runningtime="$ctime seconds"
+			else
+				if [ $ctime -lt 3600 ]; then
+					ntime=`expr $ctime / 60`			
+					runningtime="$ntime minutes"
+				else
+					ntime=`expr $ctime / 3600`
+					runningtime="$ntime hours"
+				fi
+			fi
+		else
+		 	ntime=`expr $ctime / 86400`
+                 	runningtime="$ntime days"
+		fi
+		rtime="Running time: $runningtime"
+
+		echo "$processid - run by $USERNAME |  $rtime"
+}
+
+
+
+
+## Set the bash test case for input variables
+
+while test -n "$1"; do
+case "$1" in
+        --help|-h)
+	    usage
+            exit 0
+            ;;
+	--pid|-p)
+	    PID=$2;
+	    lookup_pid;
+	    exit;
+	  ;;
+       --string|-s)
+	  SEARCH_STRING=$2;
+          lookup_string;
+	  exit
+	  ;;
+        *)
+	  echo "Unknown argument: $1"
+	  echo "-h for help";
+	  exit 1
+            ;;
+    esac
+shift
+done
+
+if [ $# -eq 0 ]; then
+    usage;
+    exit 1;
+fi
+
