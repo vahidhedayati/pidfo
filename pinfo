@@ -1,5 +1,7 @@
-#!/bin/sh
+#!/bin/bash
 
+
+lsof=$(which lsof)
 
 function usage() { 
   echo "pinfo - returns information for a given pid or pid string value"
@@ -18,7 +20,7 @@ function lookup_pid() {
        CHECK_PID=$PID
        pid_running_time;
     else	
-	MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $3}')
+	MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $3}'|head -1)
     	CHILD=$(pgrep -P $MASTERPID|wc -l)
         echo "$PID is  CHILD PID - MASTER is $MASTERPID  which has $CHILD children processes" 
         CHECK_PID=$PID
@@ -60,9 +62,12 @@ function pid_running_time() {
 		 	ntime=`expr $ctime / 86400`
                  	runningtime="$ntime days"
 		fi
+
+ run_path=`$lsof -p $processid|grep $processid|head -1|awk '{print $NF}'`
+
 		rtime="Running time: $runningtime"
 
-		echo "$processid - run by $USERNAME |  $rtime"
+		echo "$processid - run by $USERNAME |  $rtime | PATH: $run_path"
 }
 
 
@@ -99,4 +104,3 @@ if [ $# -eq 0 ]; then
     usage;
     exit 1;
 fi
-
