@@ -1,5 +1,6 @@
 #!/bin/bash
 
+export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/bin:/usr/bin
 
 lsof=$(which lsof)
 
@@ -16,16 +17,17 @@ function lookup_pid() {
     MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $2"|"$3}'|grep  "|1$"|awk -F"|" '{print $1}')
     if [ "$PID" ==  "$MASTERPID" ]; then
       CHILD=$(pgrep -P $MASTERPID|wc -l)
-       echo "$PID is MASTER with $CHILD children processes" 
+       echo -n "$PID is MASTER with $CHILD children processes | " 
        CHECK_PID=$PID
        pid_running_time;
     else	
 	MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $3}'|head -1)
     	CHILD=$(pgrep -P $MASTERPID|wc -l)
-        echo "$PID is  CHILD PID - MASTER is $MASTERPID  which has $CHILD children processes" 
+        echo -n "$PID is  CHILD PID - MASTER is $MASTERPID | " 
         CHECK_PID=$PID
         pid_running_time;
 	CHECK_PID=$MASTERPID
+	echo -n "$PID is MASTER PID - has $CHILD children processes | "
         pid_running_time;
     fi
 
@@ -62,19 +64,21 @@ function pid_running_time() {
 		 	ntime=`expr $ctime / 86400`
                  	runningtime="$ntime days"
 		fi
-
- run_path=`$lsof -p $processid|grep $processid|head -1|awk '{print $NF}'`
-
+ 		run_path=`$lsof -p $processid|grep $processid|head -1|awk '{print $NF}'`
 		rtime="Running time: $runningtime"
+		echo -n "$processid - run by $USERNAME |  $rtime | PATH: $run_path | "
+pid_usage
+}
 
-		echo "$processid - run by $USERNAME |  $rtime | PATH: $run_path"
+
+function pid_usage() { 
+   local processid=$CHECK_PID
+	ps auwx|grep $processid|grep -v "grep"|awk '{print $NF ": CPU USED:" $3 " | MEM USED:" $4 }'|head -1
 }
 
 
 
-
 ## Set the bash test case for input variables
-
 while test -n "$1"; do
 case "$1" in
         --help|-h)
@@ -92,14 +96,19 @@ case "$1" in
 	  exit
 	  ;;
         *)
-	  echo "Unknown argument: $1"
-	  echo "-h for help";
-	  exit 1
-            ;;
+	INPUT=$1;
+	if ((INPUT)) 2>/dev/null; then
+		PID=$((INPUT))
+		lookup_pid;
+     	else
+		SEARCH_STRING=$INPUT
+		 lookup_string;
+     	fi 
+		exit;
+        ;;
     esac
 shift
 done
-
 if [ $# -eq 0 ]; then
     usage;
     exit 1;
