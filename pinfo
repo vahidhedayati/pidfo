@@ -13,7 +13,7 @@ function usage() {
   echo "$0 -p pid"
   echo "$0 -s string"
 }
-#lookup_pid;
+
 function pid_running_time() {
     	local processid=$pid
     	ctime=$((`date +%s` - `stat -t /proc/$processid | awk '{print $14}'`))
@@ -21,7 +21,7 @@ function pid_running_time() {
 		if [ $ctime -le 60 ]; then
 			runningtime="$ctime seconds"
 		else
-			if [ $ctime -lt 3600 ]; then
+			if [ $ctime -lt $HOUR_IN_SECONDS ]; then
 				ntime=$(expr $ctime / $MINUTES_IN_HOUR)
 				runningtime="$ntime minutes"
 			else
@@ -33,23 +33,22 @@ function pid_running_time() {
 		ntime=$(expr $ctime / $DAY_IN_SECONDS)
                 runningtime="$ntime days"
 	fi
-
-rtime=" | Running time: $runningtime"
-		echo -n $rtime
+        rtime=" | Running time: $runningtime"
+	echo -n $rtime
 }
-function pid_lsof()  { 
 
+function pid_lsof()  { 
     	local processid=$pid
 	ret_lsof=`$lsof -P -p $processid|egrep "(LISTEN|txt    REG|ESTA|root  cwd)"|calc_lsof`
 	echo -n $ret_lsof
 }
-
 
 function pid_usage() {
    	local processid=$pid
 	ret_pidusage=$(ps auwx|calc_auwx)
 	echo -n $ret_pidusage
 }
+
 function calc_lsof() { 
 	awk 'BEGIN {
 		PORTS="";
@@ -69,6 +68,7 @@ function calc_lsof() {
 		print " | TEXT: "TXT " | DIRECTORY: "DIR " | TCP PORTS: "PORTS;
 	   }'
 }
+
 function calc_auwx() { 
 	awk -v pid=$processid 'BEGIN {CPU="";MEM="";APP="";} ($2 == pid) {CPU=CPU" "$3; MEM=MEM" "$4; APP=APP" "$11;}END {print " | PROCESS NAME: "APP " | CPU USED: "CPU " | MEM USED: "MEM}'
 }
