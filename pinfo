@@ -2,110 +2,190 @@
 
 export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/bin:/usr/bin
 
+DAY_IN_SECONDS=86400;
+HOUR_IN_SECONDS=3600;
+MINUTES_IN_HOUR=60;
+
 lsof=$(which lsof)
 
-function usage() { 
+function usage() {
   echo "pinfo - returns information for a given pid or pid string value"
   echo "$0 -p pid"
   echo "$0 -s string"
 }
+#lookup_pid;
+function pid_running_time() {
+    	local processid=$pid
+    	ctime=$((`date +%s` - `stat -t /proc/$processid | awk '{print $14}'`))
+	if [ $ctime -lt 86400 ]; then
+		if [ $ctime -le 60 ]; then
+			runningtime="$ctime seconds"
+		else
+			if [ $ctime -lt 3600 ]; then
+				ntime=$(expr $ctime / $MINUTES_IN_HOUR)
+				runningtime="$ntime minutes"
+			else
+				ntime=$(expr $ctime / $HOUR_IN_SECONDS)
+				runningtime="$ntime hours"
+			fi
+		fi
+	else
+		ntime=$(expr $ctime / $DAY_IN_SECONDS)
+                runningtime="$ntime days"
+	fi
+
+rtime=" | Running time: $runningtime"
+		echo -n $rtime
+}
+function pid_lsof()  { 
+
+    	local processid=$pid
+	ret_lsof=`$lsof -P -p $processid|egrep "(LISTEN|txt    REG|ESTA|root  cwd)"|calc_lsof`
+	echo -n $ret_lsof
+}
 
 
+function pid_usage() {
+   	local processid=$pid
+	ret_pidusage=$(ps auwx|calc_auwx)
+	echo -n $ret_pidusage
+}
+function calc_lsof() { 
+	awk 'BEGIN {
+		PORTS="";
+		ISTCP=0;
+		ISTXT=0;
+		ISDIR=0;
+		DIR="";
+		TXT="";
+		}  
+		( $10 == "(LISTEN)") {PORTS=PORTS" "$9" ";ISTCP=1;}; 
+		($4 == "cwd") {DIR=DIR" "$9" ";ISDIR=1;};  
+		($4 == "txt" ) {TXT=TXT" "$9" ";ISTEXT=1;} 
+	      END { 
+		#if (ISTEXT ==1) print " | TEXT: "TXT ;  
+		#if (ISDIR==1)  print " | DIRECTORY: "DIR;
+		#if (ISTCP==1) print " | TCP PORTS: "PORTS;
+		print " | TEXT: "TXT " | DIRECTORY: "DIR " | TCP PORTS: "PORTS;
+	   }'
+}
+function calc_auwx() { 
+	awk -v pid=$processid 'BEGIN {CPU="";MEM="";APP="";} ($2 == pid) {CPU=CPU" "$3; MEM=MEM" "$4; APP=APP" "$11;}END {print " | PROCESS NAME: "APP " | CPU USED: "CPU " | MEM USED: "MEM}'
+}
 
-function lookup_pid() { 
+function calc_ef() { 
+  	awk -v pid=$pid  'BEGIN {
+				cpid=0;mpid=0;spid=0;MPID="";SPID="";CPID="";acpid=0;ampid=0;aspid=0;RPID="";
+			  } 
+			  ($3 == pid) {cpid++; CPID=CPID" "$2" ";}; 
+			  ($2==pid) && ( $3==1) { ampid=1; }; 
+			  ($2==pid) && ( $3!=1) && ($3 != 0) { acpid=1; RPID=$3; }; 
+			  ($2==pid) {mpid++;MPID=MPID" "$2" "}; 
+			  ($2==pid) && ($3==0) { spid++; aspid=1; SPID=SPID" "$2" "}; 
+			  END {
+				if (ampid==1)  print pid " IS A MASTER PID, WITH "cpid " CHILDREN : "CPID " \nMASTER:" MPID"\n CHILD:" CPID;
+				if (aspid==1) print pid " IS A SYSTEM PID, WITH "cpid " CHILD PIDS: "CPID "\nSYSTEM:"CPID"\n"; 
+				if (acpid==1) print pid " IS A CHILD PID OF "RPID"\nREAL_PID:"RPID;
+			  }'
+}
 
-    MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $2"|"$3}'|grep  "|1$"|awk -F"|" '{print $1}')
-    if [ "$PID" ==  "$MASTERPID" ]; then
-      CHILD=$(pgrep -P $MASTERPID|wc -l)
-       echo -n "$PID is MASTER with $CHILD children processes | " 
-       CHECK_PID=$PID
-       pid_running_time;
-    else	
-	MASTERPID=$(ps -ef|grep $PID|grep -v grep|awk '{print $3}'|head -1)
-    	CHILD=$(pgrep -P $MASTERPID|wc -l)
-        echo -n "$PID is  CHILD PID - MASTER is $MASTERPID | " 
-        CHECK_PID=$PID
-        pid_running_time;
-	CHECK_PID=$MASTERPID
-	echo -n "$PID is MASTER PID - has $CHILD children processes | "
-        pid_running_time;
-    fi
+IFS='\n'
+
+function run_ef()  { 
+	local pid=$pid;
+	RETURN=$(ps -ef|calc_ef)
+	SHOW=$(echo -e $RETURN|egrep -v "(CHILD:|MASTER:|REAL_PID:|SYSTEM:)")
+	LOOKUP_RPID=$(echo $RETURN|egrep "(REAL_PID:)")
+	LOOKUP_CPID=$(echo $RETURN|egrep "(CHILD:)")
+	LOOKUP_SPID=$(echo $RETURN|egrep "(SYSTEM:)")
+	IFS=' '
+	LOOKUP_TYPE="";
+	if [[  $SHOW =~ "CHILD PID OF" ]]; then
+		pid=$(echo -e  ${LOOKUP_RPID##*:});
+		LOOKUP=$(echo -e  ${LOOKUP_RPID##*:});
+		LOOKUP_TYPE="MASTER";
+	elif [[ $SHOW =~ "A MASTER PID" ]]; then
+		LOOKUP=$(echo -e  ${LOOKUP_CPID##*:});
+		LOOKUP_TYPE="CHILD";
+	elif [[ $SHOW =~ "A SYSTEM PID" ]]; then
+		LOOKUP=$(echo -e  ${LOOKUP_SPID##*:});
+		LOOKUP_TYPE="SYSTEM";
+	fi
+	echo
+	echo  -n $SHOW
+}
+
+function doid() {
+			run_ef;
+			pid_running_time;
+			pid_lsof
+			pid_usage
+
+}
+
+function expand()  { 
+	for ids in $LOOKUP; do
+		if [[ $LOOKUP_TYPE =~ MASTER ]];then
+			pid=$ids;
+			doid;
+		elif [[ $LOOKUP_TYPE =~ CHILD ]];then
+			pid=$ids;
+			run_ef;
+		elif [[ $LOOKUP_TYPE =~ SYSTEM ]];then
+                        pid=$ids;
+                fi      
+
+	done
+
+}
 
    
+function lookup_string() {
+  	pid=$(pgrep -f "$SEARCH_STRING"|head -1)
+  	if [ ! "$pid" == "" ]; then
+		echo; echo; echo;
+		doid;
+		expand;
+		echo; echo; echo;
+  	else
+		echo "Could not find any proccess to match $SEARCH_STRING"
+  	fi
 }
-      
-function lookup_string() { 
-  PID=$(pgrep -f "$SEARCH_STRING"|head -1)
-  if [ ! "$PID" == "" ]; then
-	lookup_pid;
-  else
-	echo "Could not find any proccess to match $SEARCH_STRING"
-  fi
-}
-
-function pid_running_time() { 
-      local processid=$CHECK_PID
-      USERNAME=$(ps -ef $processid|awk '{print $1"_"$2}'|grep $processid|awk -F"_" '{print $1}')
-      ctime=$((`date +%s`  - `stat -t /proc/$processid | awk '{print $14}'`))
-		
-		if [ $ctime -lt 86400 ]; then
-			if [ $ctime -le 60 ]; then	
-				runningtime="$ctime seconds"
-			else
-				if [ $ctime -lt 3600 ]; then
-					ntime=`expr $ctime / 60`			
-					runningtime="$ntime minutes"
-				else
-					ntime=`expr $ctime / 3600`
-					runningtime="$ntime hours"
-				fi
-			fi
-		else
-		 	ntime=`expr $ctime / 86400`
-                 	runningtime="$ntime days"
-		fi
- 		run_path=`$lsof -p $processid|grep $processid|head -1|awk '{print $NF}'`
-		rtime="Running time: $runningtime"
-		echo -n "$processid - run by $USERNAME |  $rtime | PATH: $run_path | "
-pid_usage
-}
-
-
-function pid_usage() { 
-   local processid=$CHECK_PID
-	ps auwx|grep $processid|grep -v "grep"|awk '{print $NF ": CPU USED:" $3 " | MEM USED:" $4 }'|head -1
-}
-
-
 
 ## Set the bash test case for input variables
 while test -n "$1"; do
-case "$1" in
-        --help|-h)
-	    usage
-            exit 0
-            ;;
-	--pid|-p)
-	    PID=$2;
-	    lookup_pid;
-	    exit;
-	  ;;
-       --string|-s)
-	  SEARCH_STRING=$2;
-          lookup_string;
-	  exit
-	  ;;
-        *)
-	INPUT=$1;
-	if ((INPUT)) 2>/dev/null; then
-		PID=$((INPUT))
-		lookup_pid;
-     	else
-		SEARCH_STRING=$INPUT
-		 lookup_string;
-     	fi 
-		exit;
-        ;;
+	case "$1" in
+        	--help|-h)
+			usage
+            		exit 0
+            	;;
+		--pid|-p)
+			pid=$2;
+			echo; echo; echo;
+			doid;
+			expand;
+			echo; echo; echo;
+			exit;
+		;;
+       		--string|-s)
+			SEARCH_STRING=$2;
+          		lookup_string;
+			exit
+		;;
+        	*)
+			INPUT=$1;
+			if ((INPUT)) 2>/dev/null; then
+				pid=$((INPUT))
+				echo; echo; echo;
+				doid;
+				expand;
+				echo; echo; echo;
+      			else
+				SEARCH_STRING=$INPUT
+				lookup_string;
+      			fi
+			exit;
+        	;;
     esac
 shift
 done
