@@ -130,9 +130,10 @@ function expand()  {
 			doid;
 		elif [[ $LOOKUP_TYPE =~ CHILD ]];then
 			pid=$ids;
-			run_ef;
+			doid;
 		elif [[ $LOOKUP_TYPE =~ SYSTEM ]];then
                         pid=$ids;
+			doid
                 fi      
 
 	done
@@ -141,15 +142,19 @@ function expand()  {
 
    
 function lookup_string() {
-  	pid=$(pgrep -f "$SEARCH_STRING"|head -1)
-  	if [ ! "$pid" == "" ]; then
-		echo; echo; echo;
-		doid;
-		expand;
-		echo; echo; echo;
-  	else
-		echo "Could not find any proccess to match $SEARCH_STRING"
-  	fi
+	IFS=' ';
+	for init in $(ps -ef|grep init|awk 'BEGIN {INITS=""; } ($3 == 0) || ($3==1) {INITS=INITS" "$2" "; }END { print INITS" "; }'); do
+		for pid in $(ps -ef|grep "$SEARCH_STRING"|awk -v init=$init 'BEGIN {PIDS=""; }($3==init) {PIDS=PIDS" "$2} END {print PIDS;}'); do
+  			if [ ! "$pid" == "" ]; then
+				echo; 
+				doid;
+				expand;
+				echo;
+  			else
+				echo "Could not find any proccess to match $SEARCH_STRING"
+  			fi
+		done
+	done
 }
 
 ## Set the bash test case for input variables
@@ -161,10 +166,10 @@ while test -n "$1"; do
             	;;
 		--pid|-p)
 			pid=$2;
-			echo; echo; echo;
+			echo;
 			doid;
 			expand;
-			echo; echo; echo;
+			echo;
 			exit;
 		;;
        		--string|-s)
@@ -176,10 +181,10 @@ while test -n "$1"; do
 			INPUT=$1;
 			if ((INPUT)) 2>/dev/null; then
 				pid=$((INPUT))
-				echo; echo; echo;
+				echo; 
 				doid;
 				expand;
-				echo; echo; echo;
+				echo; 
       			else
 				SEARCH_STRING=$INPUT
 				lookup_string;
