@@ -20,14 +20,12 @@
 #
 #
 ##############################################################################
-
 export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/bin:/usr/bin
 
 DAY_IN_SECONDS=86400;
 HOUR_IN_SECONDS=3600;
 MINUTES_IN_HOUR=60;
 
-lsof=$(which lsof)
 
 function usage() {
   echo "pinfo - returns information for a given pid or pid string value"
@@ -35,41 +33,54 @@ function usage() {
   echo "$0 -s string"
 }
 
+ESTAB=0;
+
+#### PID RUNNING TIME STAT PROC ID
 function pid_running_time() {
     	local processid=$pid
-    	ctime=$((`date +%s` - `stat -t /proc/$processid | awk '{print $14}'`))
-	if [ $ctime -lt 86400 ]; then
-		if [ $ctime -le 60 ]; then
-			runningtime="$ctime seconds"
-		else
-			if [ $ctime -lt $HOUR_IN_SECONDS ]; then
-				ntime=$(expr $ctime / $MINUTES_IN_HOUR)
-				runningtime="$ntime minutes"
+	if [ -d /proc/$processid ]; then
+    		ctime=$((`date +%s` - `stat -t /proc/$processid | awk '{print $14}'`))
+		if [ $ctime -lt $DAY_IN_SECONDS ]; then
+			if [ $ctime -le $MINUTES_IN_HOUR ]; then
+				runningtime="$ctime seconds"
 			else
-				ntime=$(expr $ctime / $HOUR_IN_SECONDS)
-				runningtime="$ntime hours"
+				if [ $ctime -lt $HOUR_IN_SECONDS ]; then
+					ntime=$(expr $ctime / $MINUTES_IN_HOUR)
+					runningtime="$ntime minutes"
+				else
+					ntime=$(expr $ctime / $HOUR_IN_SECONDS)
+					runningtime="$ntime hours"
+				fi
 			fi
+		else
+			ntime=$(expr $ctime / $DAY_IN_SECONDS)
+                	runningtime="$ntime days"
 		fi
+        	rtime=" | Running time: $runningtime"
+		echo -n $rtime
 	else
-		ntime=$(expr $ctime / $DAY_IN_SECONDS)
-                runningtime="$ntime days"
+		rtime=" | Running time: ERR: could not locate /proc/$processid"
+                echo -n $rtime
+		echo;
+		exit 1;
 	fi
-        rtime=" | Running time: $runningtime"
-	echo -n $rtime
 }
+#### END PID RUNNING TIME STAT PROC ID
 
-function pid_lsof()  { 
-    	local processid=$pid
-	ret_lsof=`$lsof -P -p $processid|egrep "(LISTEN|txt    REG|ESTA|root  cwd)"|calc_lsof`
-	echo -n $ret_lsof
-}
 
+#### PS AUWX CPU MEM PROCESS NAME INFO
 function pid_usage() {
    	local processid=$pid
-	ret_pidusage=$(ps auwx|calc_auwx)
+	ret_pidusage=$(ps auwx|grep -v grep|calc_auwx)
 	echo -n $ret_pidusage
 }
 
+function calc_auwx() { 
+	awk -v pid=$processid 'BEGIN {CPU="";MEM="";APP="";} ($2 == pid) {CPU=CPU" "$3; MEM=MEM" "$4; APP=APP" "$11;}END {print " | PROCESS NAME: "APP " | CPU USED: "CPU " | MEM USED: "MEM}'
+}
+#### END PS AUWX CPU MEM PROCESS NAME INFO
+
+#### LSOF
 function calc_lsof() { 
 	awk 'BEGIN {
 		PORTS="";
@@ -78,22 +89,40 @@ function calc_lsof() {
 		ISDIR=0;
 		DIR="";
 		TXT="";
+		ISESTAB=0;
+		ESTABLISHED="";
 		}  
+		( $10 == "(ESTABLISHED)") {ESTABLISHED=ESTABLISHED$8":"$9" ";ISESTAB++;}; 
 		( $10 == "(LISTEN)") {PORTS=PORTS" "$9" ";ISTCP=1;}; 
 		($4 == "cwd") {DIR=DIR" "$9" ";ISDIR=1;};  
 		($4 == "txt" ) {TXT=TXT" "$9" ";ISTEXT=1;} 
 	      END { 
 		#if (ISTEXT ==1) print " | TEXT: "TXT ;  
 		#if (ISDIR==1)  print " | DIRECTORY: "DIR;
-		#if (ISTCP==1) print " | TCP PORTS: "PORTS;
-		print " | TEXT: "TXT " | DIRECTORY: "DIR " | TCP PORTS: "PORTS;
+		if ((ISTCP==1) &&  (ISESTAB==0)) print "| TEXT: "TXT" | DIRECTORY: "DIR" | TCP PORTS: "PORTS"| ESTABLISHED: "ISESTAB"\nTCPPORTS_"PORTS;
+		if ((ISESTAB>=1) && (ISTCP==1)) print "| TEXT: "TXT" | DIRECTORY: "DIR" | TCP PORTS: "PORTS"| ESTABLISHED: "ISESTAB"\nTCPPORTS_"PORTS"\nTCPESTAB_"ESTABLISHED;
+		if (ISESTAB==0) print "| TEXT: "TXT "| DIRECTORY: "DIR" | TCP PORTS: "PORTS"| ESTABLISHED: "ISESTAB;
 	   }'
 }
-
-function calc_auwx() { 
-	awk -v pid=$processid 'BEGIN {CPU="";MEM="";APP="";} ($2 == pid) {CPU=CPU" "$3; MEM=MEM" "$4; APP=APP" "$11;}END {print " | PROCESS NAME: "APP " | CPU USED: "CPU " | MEM USED: "MEM}'
+IFS='\n'
+function pid_lsof()  { 
+    	local processid=$pid
+	RETURN=$(lsof -P -p $processid|egrep "(LISTEN|txt    REG|ESTA|root  cwd|ESTABLISHED)"|calc_lsof)
+        SHOW=$(echo -e $RETURN|egrep -v "(TCPESTAB_|TCPPORTS_)")
+        LOOKUP_PORTS=$(echo -e $RETURN|grep "TCPPORTS_")
+        LOOKUP_ESTAB=$(echo -e $RETURN|grep "TCPESTAB_")
+	echo -n $SHOW
+	if [ $ESTAB -ge 1 ]; then
+		IFS=' ';
+		LOOKUP_ESTAB=$(echo -e ${LOOKUP_ESTAB##*_});
+		for conns in $LOOKUP_ESTAB; do
+			ESTABLISHEDCONN[${#ESTABLISHEDCONN[@]}]=$conns
+		done
+	fi
 }
+#### END LSOF
 
+#### PS EF OUTPUT - RETURNS CHILD INFO 
 function calc_ef() { 
   	awk -v pid=$pid  'BEGIN {
 				cpid=0;mpid=0;spid=0;MPID="";SPID="";CPID="";acpid=0;ampid=0;aspid=0;RPID="";
@@ -114,7 +143,7 @@ IFS='\n'
 
 function run_ef()  { 
 	local pid=$pid;
-	RETURN=$(ps -ef|calc_ef)
+	RETURN=$(ps -ef|grep -v grep|calc_ef)
 	SHOW=$(echo -e $RETURN|egrep -v "(CHILD:|MASTER:|REAL_PID:|SYSTEM:)")
 	LOOKUP_RPID=$(echo $RETURN|egrep "(REAL_PID:)")
 	LOOKUP_CPID=$(echo $RETURN|egrep "(CHILD:)")
@@ -136,13 +165,6 @@ function run_ef()  {
 	echo  -n $SHOW
 }
 
-function doid() {
-			run_ef;
-			pid_running_time;
-			pid_lsof
-			pid_usage
-
-}
 
 function expand()  { 
 	for ids in $LOOKUP; do
@@ -161,7 +183,27 @@ function expand()  {
 
 }
 
+#### END PS EF OUTPUT - RETURNS CHILD INFO 
    
+
+#### TRIGGER THE LOOKUP
+function doid() {
+	run_ef;
+	pid_running_time;
+	pid_lsof
+	pid_usage
+	if [ $ESTAB -ge 1 ]; then
+		##IFS=' ';
+		i=0;
+		for conn in "${ESTABLISHEDCONN[@]}"; do
+				((i++))
+				echo "$i $conn"
+		done
+	fi
+}
+#### END TRIGGER THE LOOKUP
+
+#### SEARCH STRING TO PID - PIDS PARENTS COULD BE SYSTEM INIT OR XWINDOWS INIT 
 function lookup_string() {
 	IFS=' ';
 	for init in $(ps -ef|grep init|awk 'BEGIN {INITS=""; } ($3 == 0) || ($3==1) {INITS=INITS" "$2" "; }END { print INITS" "; }'); do
@@ -177,6 +219,8 @@ function lookup_string() {
 		done
 	done
 }
+#### END SEARCH STRING TO PID - PIDS PARENTS COULD BE SYSTEM INIT OR XWINDOWS INIT 
+
 
 ## Set the bash test case for input variables
 while test -n "$1"; do
@@ -185,6 +229,10 @@ while test -n "$1"; do
 			usage
             		exit 0
             	;;
+       		--establised|-e)
+			ESTAB=1;
+			shift;
+		;;
 		--pid|-p)
 			pid=$2;
 			echo;
@@ -198,14 +246,15 @@ while test -n "$1"; do
           		lookup_string;
 			exit
 		;;
+
         	*)
 			INPUT=$1;
 			if ((INPUT)) 2>/dev/null; then
 				pid=$((INPUT))
-				echo; 
+				echo;
 				doid;
 				expand;
-				echo; 
+				echo;
       			else
 				SEARCH_STRING=$INPUT
 				lookup_string;
