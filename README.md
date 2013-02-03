@@ -1,7 +1,9 @@
 pinfo
 =====
 
-Process Info - This gives a given pid or maps search string to a pid and returns amount of children and how long specific child and its parent or master pid has been running for 
+Process Info - Run pinfo and provide either a process id or search string. The script will return various useful information
+such as amount of children, how long the pids have been running for, cpu/mem usage, tcp listen ports and lots more.. refer to output below for an example:
+
 
 
 ###Examples of either pid or text given after command and its output..
