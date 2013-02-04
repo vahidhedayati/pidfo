@@ -3,7 +3,7 @@
 ##############################################################################
 # Bash script written by Vahid Hedayati Feb 2013
 # Download pinfo
-# cp pinfo /usr/local/bin/ && chmod +x /usr/local/bin/pinfo
+# cp pidfo /usr/bin/ && chmod +x /usr/bin/pidfo
 ##############################################################################
 # This program is free software: you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
