@@ -1,0 +1,270 @@
+#!/bin/bash
+
+##############################################################################
+# Bash script written by Vahid Hedayati Feb 2013
+# Download pinfo
+# cp pidfo /usr/bin/ && chmod +x /usr/bin/pidfo
+##############################################################################
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program. If not, see <http://www.gnu.org/licenses/>.
+#
+#
+##############################################################################
+export PATH=$PATH:/usr/local/sbin:/usr/sbin:/sbin:/usr/local/bin:/bin:/usr/bin
+
+DAY_IN_SECONDS=86400;
+HOUR_IN_SECONDS=3600;
+MINUTES_IN_HOUR=60;
+
+
+function usage() {
+  echo "pinfo - returns information for a given pid or pid string value"
+  echo "$0 -p pid"
+  echo "$0 -s string"
+}
+
+ESTAB=0;
+
+#### PID RUNNING TIME STAT PROC ID
+function pid_running_time() {
+      local processid=$pid
+	if [ -d /proc/$processid ]; then
+    		ctime=$((`date +%s` - `stat -t /proc/$processid | awk '{print $14}'`))
+		if [ $ctime -lt $DAY_IN_SECONDS ]; then
+			if [ $ctime -le $MINUTES_IN_HOUR ]; then
+				runningtime="$ctime seconds"
+			else
+				if [ $ctime -lt $HOUR_IN_SECONDS ]; then
+					ntime=$(expr $ctime / $MINUTES_IN_HOUR)
+					runningtime="$ntime minutes"
+				else
+					ntime=$(expr $ctime / $HOUR_IN_SECONDS)
+					runningtime="$ntime hours"
+				fi
+			fi
+		else
+			ntime=$(expr $ctime / $DAY_IN_SECONDS)
+                	runningtime="$ntime days"
+		fi
+        	rtime=" | Running time: $runningtime"
+		echo -n $rtime
+	else
+		rtime=" | Running time: ERR: could not locate /proc/$processid"
+                echo -n $rtime
+		echo;
+		exit 1;
+	fi
+}
+#### END PID RUNNING TIME STAT PROC ID
+
+
+#### PS AUWX CPU MEM PROCESS NAME INFO
+function pid_usage() {
+   	local processid=$pid
+	ret_pidusage=$(ps auwx|grep -v grep|calc_auwx)
+	echo -n $ret_pidusage
+}
+
+function calc_auwx() { 
+	awk -v pid=$processid 'BEGIN {CPU="";MEM="";APP="";} ($2 == pid) {CPU=CPU" "$3; MEM=MEM" "$4; APP=APP" "$11;}END {print " | PROCESS NAME: "APP " | CPU USED: "CPU " | MEM USED: "MEM}'
+}
+#### END PS AUWX CPU MEM PROCESS NAME INFO
+
+#### LSOF
+function calc_lsof() { 
+	awk 'BEGIN {
+		PORTS="";
+		ISTCP=0;
+		ISTXT=0;
+		ISDIR=0;
+		DIR="";
+		TXT="";
+		ISESTAB=0;
+		ESTABLISHED="";
+		}  
+		( $10 == "(ESTABLISHED)") {ESTABLISHED=ESTABLISHED$8":"$9" ";ISESTAB++;}; 
+		( $10 == "(LISTEN)") {PORTS=PORTS" "$9" ";ISTCP=1;}; 
+		($4 == "cwd") {DIR=DIR" "$9" ";ISDIR=1;};  
+		($4 == "txt" ) {TXT=TXT" "$9" ";ISTEXT=1;} 
+	      END { 
+		#if (ISTEXT ==1) print " | TEXT: "TXT ;  
+		#if (ISDIR==1)  print " | DIRECTORY: "DIR;
+		if ((ISTCP==1) &&  (ISESTAB==0)) print "| TEXT: "TXT" | DIRECTORY: "DIR" | TCP PORTS: "PORTS"| ESTABLISHED: "ISESTAB"\nTCPPORTS_"PORTS;
+		if ((ISESTAB>=1) && (ISTCP==1)) print "| TEXT: "TXT" | DIRECTORY: "DIR" | TCP PORTS: "PORTS"| ESTABLISHED: "ISESTAB"\nTCPPORTS_"PORTS"\nTCPESTAB_"ESTABLISHED;
+		if (ISESTAB==0) print "| TEXT: "TXT "| DIRECTORY: "DIR" | TCP PORTS: "PORTS"| ESTABLISHED: "ISESTAB;
+	   }'
+}
+IFS='\n'
+function pid_lsof()  { 
+    	local processid=$pid
+	RETURN=$(lsof -P -p $processid|egrep "(LISTEN|txt    REG|ESTA|root  cwd|ESTABLISHED)"|calc_lsof)
+        SHOW=$(echo -e $RETURN|egrep -v "(TCPESTAB_|TCPPORTS_)")
+        LOOKUP_PORTS=$(echo -e $RETURN|grep "TCPPORTS_")
+        LOOKUP_ESTAB=$(echo -e $RETURN|grep "TCPESTAB_")
+	echo -n $SHOW
+	if [ $ESTAB -ge 1 ]; then
+		IFS=' ';
+		LOOKUP_ESTAB=$(echo -e ${LOOKUP_ESTAB##*_});
+		for conns in $LOOKUP_ESTAB; do
+			ESTABLISHEDCONN[${#ESTABLISHEDCONN[@]}]=$conns
+		done
+	fi
+}
+#### END LSOF
+
+#### PS EF OUTPUT - RETURNS CHILD INFO 
+function calc_ef() { 
+  	awk -v pid=$pid  'BEGIN {
+				cpid=0;mpid=0;spid=0;MPID="";SPID="";CPID="";acpid=0;ampid=0;aspid=0;RPID="";
+			  } 
+			  ($3 == pid) {cpid++; CPID=CPID" "$2" ";}; 
+			  ($2==pid) && ( $3==1) { ampid=1; }; 
+			  ($2==pid) && ( $3!=1) && ($3 != 0) { acpid=1; RPID=$3; }; 
+			  ($2==pid) {mpid++;MPID=MPID" "$2" "}; 
+			  ($2==pid) && ($3==0) { spid++; aspid=1; SPID=SPID" "$2" "}; 
+			  END {
+				if (ampid==1)  print pid " IS A MASTER PID, WITH "cpid " CHILDREN : "CPID " \nMASTER:" MPID"\n CHILD:" CPID;
+				if (aspid==1) print pid " IS A SYSTEM PID, WITH "cpid " CHILD PIDS: "CPID "\nSYSTEM:"CPID"\n"; 
+				if (acpid==1) print pid " IS A CHILD PID OF "RPID"\nREAL_PID:"RPID;
+			  }'
+}
+
+IFS='\n'
+
+function run_ef()  { 
+	local pid=$pid;
+	RETURN=$(ps -ef|grep -v grep|calc_ef)
+	SHOW=$(echo -e $RETURN|egrep -v "(CHILD:|MASTER:|REAL_PID:|SYSTEM:)")
+	LOOKUP_RPID=$(echo $RETURN|egrep "(REAL_PID:)")
+	LOOKUP_CPID=$(echo $RETURN|egrep "(CHILD:)")
+	LOOKUP_SPID=$(echo $RETURN|egrep "(SYSTEM:)")
+	IFS=' '
+	LOOKUP_TYPE="";
+	if [[  $SHOW =~ "CHILD PID OF" ]]; then
+		pid=$(echo -e  ${LOOKUP_RPID##*:});
+		LOOKUP=$(echo -e  ${LOOKUP_RPID##*:});
+		LOOKUP_TYPE="MASTER";
+	elif [[ $SHOW =~ "A MASTER PID" ]]; then
+		LOOKUP=$(echo -e  ${LOOKUP_CPID##*:});
+		LOOKUP_TYPE="CHILD";
+	elif [[ $SHOW =~ "A SYSTEM PID" ]]; then
+		LOOKUP=$(echo -e  ${LOOKUP_SPID##*:});
+		LOOKUP_TYPE="SYSTEM";
+	fi
+	echo
+	echo  -n $SHOW
+}
+
+
+function expand()  { 
+	for ids in $LOOKUP; do
+		if [[ $LOOKUP_TYPE =~ MASTER ]];then
+			pid=$ids;
+			doid;
+		elif [[ $LOOKUP_TYPE =~ CHILD ]];then
+			pid=$ids;
+			doid;
+		elif [[ $LOOKUP_TYPE =~ SYSTEM ]];then
+                        pid=$ids;
+			doid
+                fi      
+
+	done
+
+}
+
+#### END PS EF OUTPUT - RETURNS CHILD INFO 
+   
+
+#### TRIGGER THE LOOKUP
+function doid() {
+	run_ef;
+	pid_running_time;
+	pid_lsof
+	pid_usage
+	if [ $ESTAB -ge 1 ]; then
+		##IFS=' ';
+		i=0;
+		for conn in "${ESTABLISHEDCONN[@]}"; do
+				((i++))
+				echo "$i $conn"
+		done
+	fi
+}
+#### END TRIGGER THE LOOKUP
+
+#### SEARCH STRING TO PID - PIDS PARENTS COULD BE SYSTEM INIT OR XWINDOWS INIT 
+function lookup_string() {
+	IFS=' ';
+	for init in $(ps -ef|grep init|awk 'BEGIN {INITS=""; } ($3 == 0) || ($3==1) {INITS=INITS" "$2" "; }END { print INITS" "; }'); do
+		for pid in $(ps -ef|grep "$SEARCH_STRING"|awk -v init=$init 'BEGIN {PIDS=""; }($3==init) {PIDS=PIDS" "$2} END {print PIDS;}'); do
+  			if [ ! "$pid" == "" ]; then
+				echo; 
+				doid;
+				expand;
+				echo;
+  			else
+				echo "Could not find any proccess to match $SEARCH_STRING"
+  			fi
+		done
+	done
+}
+#### END SEARCH STRING TO PID - PIDS PARENTS COULD BE SYSTEM INIT OR XWINDOWS INIT 
+
+
+## Set the bash test case for input variables
+while test -n "$1"; do
+	case "$1" in
+        	--help|-h)
+			usage
+            		exit 0
+            	;;
+       		--establised|-e)
+			ESTAB=1;
+			shift;
+		;;
+		--pid|-p)
+			pid=$2;
+			echo;
+			doid;
+			expand;
+			echo;
+			exit;
+		;;
+       		--string|-s)
+			SEARCH_STRING=$2;
+          		lookup_string;
+			exit
+		;;
+
+        	*)
+			INPUT=$1;
+			if ((INPUT)) 2>/dev/null; then
+				pid=$((INPUT))
+				echo;
+				doid;
+				expand;
+				echo;
+      			else
+				SEARCH_STRING=$INPUT
+				lookup_string;
+      			fi
+			exit;
+        	;;
+    esac
+shift
+done
+if [ $# -eq 0 ]; then
+    usage;
+    exit 1;
+fi
