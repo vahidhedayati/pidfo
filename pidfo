@@ -28,7 +28,7 @@ MINUTES_IN_HOUR=60;
 
 
 function usage() {
-  echo "pinfo - returns information for a given pid or pid string value"
+  echo "pidfo - returns information for a given pid or pid string value"
   echo "$0 -p pid"
   echo "$0 -s string"
 }
